@@ -201,6 +201,7 @@ class DecisionMaker:
     def plotBrickStatus(self, image):
         image = image.copy()
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        border = 5
         print(self.brick_status)
         for i in range(self.num_brick):
             for j in range(2):
@@ -210,15 +211,29 @@ class DecisionMaker:
                     cv2.rectangle(
                         image,
                         (
-                            int(i * image.shape[1] / self.num_brick),
-                            (image.shape[0] * j) // 2,
+                            int(i * image.shape[1] / self.num_brick) + border,
+                            (image.shape[0] * j) // 2 + border,
                         ),
                         (
-                            int((i + 1) * image.shape[1] / self.num_brick),
-                            (image.shape[0] * (j + 1)) // 2,
+                            int((i + 1) * image.shape[1] / self.num_brick) - border,
+                            (image.shape[0] * (j + 1)) // 2 - border,
                         ),
                         color,
-                        10,
+                        border * 2,
+                    )
+                else:
+                    cv2.rectangle(
+                        image,
+                        (
+                            int(i * image.shape[1] / self.num_brick) + border,
+                            (image.shape[0] * j) // 2 + border,
+                        ),
+                        (
+                            int((i + 1) * image.shape[1] / self.num_brick) - border,
+                            (image.shape[0] * (j + 1)) // 2 - border,
+                        ),
+                        (255, 255, 255),
+                        border * 2,
                     )
         return image
 
@@ -237,7 +252,46 @@ class DecisionMaker:
 
         # TODO: Deal with orientation
 
-        if not self.isSafe:  # * Deal with unsafe situation
+        pose_landmarks = [
+            landmark2np(landmark)
+            for landmark in self.detection_result.pose_landmarks[0]
+        ]
+        left_shoulder, right_shoulder, body_pos, hip_pos = self.bodyPos(pose_landmarks)
+        body_lane = body_pos - hip_pos
+
+        if image.shape[0] > image.shape[1]:
+            aspect_ratio = np.asarray([image.shape[1] / image.shape[0], 1, 1])
+        else:
+            aspect_ratio = np.asarray([1, image.shape[0] / image.shape[1], 1])
+        body_x = body_lane[0] * aspect_ratio[0]
+        body_y = body_lane[1] * aspect_ratio[1]
+        if abs(body_x) > abs(body_y):
+            pivot_brick = int(body_pos[0] * self.num_brick)
+            pivot_brick = min(max(pivot_brick, 0), self.num_brick - 1)
+            if body_x > 0:
+                if body_y < 0:
+                    for i in range(pivot_brick, self.num_brick):
+                        self.brick_status[i] = [self.max_level - 1, self.max_level]
+                    for i in range(pivot_brick):
+                        self.brick_status[i] = [1, 0]
+                else:
+                    for i in range(pivot_brick, self.num_brick):
+                        self.brick_status[i] = [self.max_level, self.max_level - 1]
+                    for i in range(pivot_brick):
+                        self.brick_status[i] = [0, 1]
+            else:
+                if body_y < 0:
+                    for i in range(pivot_brick + 1):
+                        self.brick_status[i] = [self.max_level - 1, self.max_level]
+                    for i in range(pivot_brick + 1, self.num_brick):
+                        self.brick_status[i] = [1, 0]
+                else:
+                    for i in range(pivot_brick + 1):
+                        self.brick_status[i] = [self.max_level, self.max_level - 1]
+                    for i in range(pivot_brick + 1, self.num_brick):
+                        self.brick_status[i] = [0, 1]
+
+        elif not self.isSafe:  # * Deal with unsafe situation
             if self.facePos >= MIDDLE:
                 up_pos = self.detection_result.pose_landmarks[0][
                     self.name2label["LEFT_SHOULDER"]
@@ -280,13 +334,6 @@ class DecisionMaker:
             self.brick_status = [
                 [base_level, base_level] for _ in range(self.num_brick)
             ]
-            pose_landmarks = [
-                landmark2np(landmark)
-                for landmark in self.detection_result.pose_landmarks[0]
-            ]
-            left_shoulder, right_shoulder, body_pos, hip_pos = self.bodyPos(
-                pose_landmarks
-            )
             if self.facePos == LEFT:
                 up_shoulder_pos = left_shoulder
                 up_shoulder_brick_x = int(up_shoulder_pos[0] * self.num_brick)
@@ -398,7 +445,7 @@ if __name__ == "__main__":
     # imgList.extend(["img1.jpg", "img2.jpg", "img3.jpg", "img4.jpg"])
     # imgList.extend(["img1-1.jpg", "img1-2.jpg", "img1-3.jpg"])
     imgList.extend(["img2-1.jpg", "img2-2.jpg", "img2-3.jpg"])
-    imgList.extend(["img3-1.jpg", "img3-2.jpg", "img3-3.jpg"])
+    # imgList.extend(["img3-1.jpg", "img3-2.jpg", "img3-3.jpg"])
     imgList.extend(["img4-1.jpg", "img4-2.jpg", "img4-3.jpg"])
     decisionMaker = DecisionMaker()
 
