@@ -6,9 +6,11 @@ import json
 
 import paho.mqtt.publish as publish
 import paho.mqtt.client as mqtt
+from PIL import Image
 
 from utils.decisionMaker import DecisionMaker
 from utils.constant import PLAYING
+from utils.helper import pil_image_to_byte_array
 
 app = Flask(__name__)
 decisionMaker = DecisionMaker(model_path="./utils/pose_landmarker.task")
@@ -27,23 +29,46 @@ def detect():
     encoded_data = request.data
     img = json.loads(encoded_data)["image"]
     img = np.array(img, dtype=np.uint8)
-    img = mp.Image(image_format=mp.ImageFormat.SRGB, data=img)
+    mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=img)
+
+    ws_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    ws_img = Image.fromarray(ws_img)
+    byte_array = pil_image_to_byte_array(ws_img)
+    client.publish(topic="image", payload=byte_array)
+
     try:
-        result = decisionMaker.makeDecision(img.numpy_view())
+        result = decisionMaker.makeDecision(mp_img.numpy_view())
     except Exception as e:
         return jsonify({"error": str(e)}), 400
-
-    # if debug save img
-    if app.debug:
-        cv2.imwrite("./inputs/img.png", img)
-        block_img = decisionMaker.plotBrickStatus(img)
-        annotated_img = decisionMaker.detector.result_image(
-            block_img, decisionMaker.detection_result
-        )
-        cv2.imwrite("./outputs/img.png", annotated_img)
     if result is None:
         return jsonify({"error": "No result"}), 400
+
+    # if app.debug:
+    cv2.imwrite("./inputs/img.png", img)
+    block_img = decisionMaker.plotBrickStatus(img)
+    annotated_img = decisionMaker.detector.result_image(
+        block_img, decisionMaker.detection_result
+    )
+    ws_img = Image.fromarray(annotated_img)
+    byte_array = pil_image_to_byte_array(ws_img)
+    client.publish(topic="debug-image", payload=byte_array)
+    annotated_img = cv2.cvtColor(annotated_img, cv2.COLOR_RGB2BGR)
+    cv2.imwrite("./outputs/img.png", annotated_img)
+
     return jsonify(result)
+
+
+@app.route("/image", methods=["POST"])
+def image():
+    encoded_data = request.data
+    img = json.loads(encoded_data)["image"]
+    img = np.array(img, dtype=np.uint8)
+
+    ws_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    ws_img = Image.fromarray(ws_img)
+    byte_array = pil_image_to_byte_array(ws_img)
+    client.publish(topic="image", payload=byte_array)
+    return jsonify({"message": "Image received"})
 
 
 @app.route("/playing", methods=["POST"])
@@ -63,8 +88,22 @@ def state():
 @app.route("/control", methods=["POST"])
 def control():
     control = json.loads(request.data)
-    x, y, level = control
-    result = decisionMaker.updateControl(x, y, level)
+    if len(control) != decisionMaker.num_brick:
+        return jsonify({"error": "Invalid control"}), 400
+    for c in range(len(control)):
+        if len(control[c]) != 2:
+            return jsonify({"error": "Invalid control"}), 400
+        if (
+            control[c][0] < 0
+            or control[c][0] > decisionMaker.max_level
+            or control[c][1] < 0
+            or control[c][1] > decisionMaker.max_level
+        ):
+            return jsonify({"error": "Invalid control"}), 400
+        control[c][0] = int(control[c][0])
+        control[c][1] = int(control[c][1])
+    result = decisionMaker.updateControl(control)
+
     if result is None:
         return jsonify({"error": "Invalid control"}), 400
     payload = json.dumps(control)

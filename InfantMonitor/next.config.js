@@ -10,6 +10,9 @@ const nextConfig = {
     // a non-locale prefixed path e.g. `/hello`
     defaultLocale: 'en-US',
   },
+  images: {
+    domains: ['localhost', '127.0.0.1'],
+  },
 }
 
 module.exports = nextConfig

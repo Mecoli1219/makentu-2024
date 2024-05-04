@@ -71,6 +71,7 @@ def get_frame():
     ret, frame = cap.read()
     if not ret:
         return None
+    frame = cv2.resize(frame, (640, 480))
     return frame
 
 
@@ -105,12 +106,7 @@ if __name__ == "__main__":
         if msg.topic == "control":
             if STATE.get_state() == CONTROL:
                 data = msg.payload  # "[6, 1, 3]"
-                x, y, level = json.loads(data)
-                x = int(x)
-                y = int(y)
-                level = int(level)
-                motorCmd = deepcopy(STATE.brick_status)
-                motorCmd[x][y] = level
+                motorCmd = json.loads(data)
                 send_motorCmd(motorCmd)
 
     if msg == "Start":
@@ -125,14 +121,14 @@ if __name__ == "__main__":
 
         # capture image from mac os camera
         while True:
-            if STATE.get_state() == NORMAL:
-                frame = get_frame()
-                if frame is None:
-                    print("Failed to get frame")
-                    continue
+            frame = get_frame()
+            if frame is None:
+                print("Failed to get frame")
+                continue
 
-                numpyData = {"image": frame}
-                encoded_data = json.dumps(numpyData, cls=NumpyArrayEncoder)
+            numpyData = {"image": frame}
+            encoded_data = json.dumps(numpyData, cls=NumpyArrayEncoder)
+            if STATE.get_state() == NORMAL:
                 response = post(
                     url + "detect",
                     data=encoded_data,
@@ -141,17 +137,28 @@ if __name__ == "__main__":
                 if response.ok:
                     motorCmd = response.json()
                     send_motorCmd(motorCmd)
-                    time.sleep(delay_time / 1000)
+                    # time.sleep(delay_time / 1000)
                 else:
                     print("Failed to get response")
                     time.sleep(delay_time / 10000)
             elif STATE.get_state() == PLAYING:
+                response = post(
+                    url + "image",
+                    data=encoded_data,
+                    headers={"Content-Type": "application/json"},
+                )
+
                 response = post(url + "playing")
                 motorCmd = response.json()
                 send_motorCmd(motorCmd)
                 time.sleep(delay_time / 1000)
             else:
                 # print("Control state")
+                response = post(
+                    url + "image",
+                    data=encoded_data,
+                    headers={"Content-Type": "application/json"},
+                )
                 time.sleep(delay_time / 1000)
 
     # s.close()

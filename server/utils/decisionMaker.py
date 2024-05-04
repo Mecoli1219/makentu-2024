@@ -194,7 +194,7 @@ class DecisionMaker:
         image = image.copy()
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         border = 5
-        print(self.brick_status)
+        # print(self.brick_status)
         for i in range(self.num_brick):
             for j in range(2):
                 color = [0, 0, 0]
@@ -478,21 +478,9 @@ class DecisionMaker:
             self.brick_status[0] = [level, level]
         return self.brick_status
 
-    def updateControl(self, x, y, level):
+    def updateControl(self, control):
         if self._state == CONTROL:
-            x = int(x)
-            y = int(y)
-            level = int(level)
-            if (
-                x < 0
-                or x >= self.num_brick
-                or y < 0
-                or y >= 2
-                or level < 0
-                or level > 3
-            ):
-                return None
-            self.brick_status[x][y] = level
+            self.brick_status = control
         return self.brick_status
 
 
