@@ -1,12 +1,10 @@
-from pose import DetectionModel
 import cv2
 import mediapipe as mp
-from mediapipe import solutions
 import numpy as np
 
-from mediapipe.framework.formats import landmark_pb2
-from pose import DetectionModel
-from labels import LABEL2NAME, NAME2LABEL
+from .pose import DetectionModel
+from .labels import LABEL2NAME, NAME2LABEL
+from .constant import NORMAL, PLAYING, CONTROL
 
 MIDDLE = 0
 LEFT = 1
@@ -15,22 +13,6 @@ RIGHT = -1
 
 def landmark2np(landmark):
     return np.array([landmark.x, landmark.y, landmark.z])
-
-
-# class PID:
-#     def __init__(self, Kp=1, Ki=0, Kd=0):
-#         self.Kp = Kp
-#         self.Ki = Ki
-#         self.Kd = Kd
-#         self.prev_error = 0
-#         self.integral = 0
-
-#     def update(self, target, current):
-#         error = target - current
-#         self.integral += error
-#         derivative = error - self.prev_error
-#         self.prev_error = error
-#         return self.Kp * error + self.Ki * self.integral + self.Kd * derivative
 
 
 class DecisionMaker:
@@ -49,6 +31,10 @@ class DecisionMaker:
         self.detection_result = None
         self.brick_status = [[0, 0] for _ in range(num_brick)]
         self.max_level = 3
+        self.prev_isSafe = True
+
+        self._state = NORMAL
+        self.playing_count = 0
 
     def headPos(self, pose_landmarks):
         # Get the position of the head
@@ -119,6 +105,8 @@ class DecisionMaker:
         return isSafe, facePos
 
     def voteResult(self, image):
+        if image.shape[2] == 3:
+            image = np.concatenate([image, np.ones_like(image[:, :, :1]) * 255], axis=2)
         images = [
             np.rot90(image, 1).copy(),
             np.rot90(image, 2).copy(),
@@ -128,11 +116,14 @@ class DecisionMaker:
         results = [[], []]
         for img in images:
 
-            media_frame = mp.Image(image_format=mp.ImageFormat.SRGBA, data=img)
+            media_frame = mp.Image(
+                image_format=mp.ImageFormat.SRGBA, data=np.array(img)
+            )
             detection_result = self.detector.detect(media_frame)
             pose_landmarks_list = detection_result.pose_landmarks
             if len(pose_landmarks_list) != 1:
                 continue
+            self.detection_result = detection_result
             pose_landmarks = pose_landmarks_list[0]
             pose_landmarks = [landmark2np(landmark) for landmark in pose_landmarks]
 
@@ -143,10 +134,11 @@ class DecisionMaker:
             isSafe, facePos = self.babyStatus(pose_landmarks, aspect_ratio)
             results[0].append(isSafe)
             results[1].append(facePos)
+        if len(results[0]) == 0:
+            return None, None
 
         isSafe = np.mean(results[0]) > 0.5
         facePos = max(set(results[1]), key=results[1].count)
-        self.detection_result = detection_result
         return isSafe, facePos
 
     def startSafetyWave(self, up_brick, down_brick):
@@ -237,21 +229,26 @@ class DecisionMaker:
                     )
         return image
 
-    def makeDecision(self, image):
-        isSafe, facePos = self.voteResult(image)
-        if isSafe:
-            if self.safeCount > self.safeThreshold:
-                self.isSafe = True
+    def makeDecision(self, image=None):
+        if self._state != NORMAL:
+            return None
+        if image is not None:
+            isSafe, facePos = self.voteResult(image)
+            if isSafe is None:
+                return None
+            self.prev_isSafe = isSafe
+            if isSafe:
+                if self.safeCount > self.safeThreshold:
+                    self.isSafe = True
+                else:
+                    self.safeCount += 1
+                self.startSafety = False
             else:
-                self.safeCount += 1
-            self.startSafety = False
-        else:
-            self.safeCount = 0
-            self.isSafe = False
-        self.facePos = facePos
+                self.safeCount = 0
+                self.isSafe = False
+            self.facePos = facePos
 
         # TODO: Deal with orientation
-
         pose_landmarks = [
             landmark2np(landmark)
             for landmark in self.detection_result.pose_landmarks[0]
@@ -382,7 +379,7 @@ class DecisionMaker:
             which_brick_1 = int(which_x_1 * self.num_brick)
             which_brick_2 = int(which_x_2 * self.num_brick)
 
-            if up_shoulder_pos[0] - down_pos[0] > 0:
+            if up_shoulder_pos[0] - down_shoulder_pos[0] > 0:
                 # Right should pull up
                 brick_list = [
                     [which_brick_1 + 1, self.num_brick],
@@ -431,11 +428,72 @@ class DecisionMaker:
                     self.brick_status[i][1] = base_level + 1
 
         else:
-            base_level = 1
+            base_level = 0
             self.brick_status = [
                 [base_level, base_level] for _ in range(self.num_brick)
             ]
-        return
+        return self.brick_status
+
+    def getState(self):
+        return self._state
+
+    def _getPlayingPattern(self):
+        # [[1,1], [2,2], [3,3], [2,2],[1,1], ...]
+        brick_state = []
+        for i in range(self.num_brick):
+            level = i % 4 + 1
+            if level == 4:
+                level = 2
+            brick_state.append([level, level])
+        return brick_state
+
+    def updateState(self, state):
+        if state in [NORMAL, PLAYING, CONTROL]:
+            self._state = state
+            if state == NORMAL:
+                self.isSafe = True
+                self.facePos = MIDDLE
+                self.safeCount = 0
+                self.startSafety = False
+                self.safetyUp = True
+                self.brick_status = [[0, 0] for _ in range(self.num_brick)]
+                self.prev_isSafe = True
+            if state == PLAYING:
+                self.brick_status = self._getPlayingPattern()
+                self.playing_count = 0
+            if state == CONTROL:
+                self.brick_status = [[0, 0] for _ in range(self.num_brick)]
+        return self.brick_status
+
+    def updatePlaying(self):
+        if self._state == PLAYING:
+            self.playing_count += 1
+            self.playing_count %= 4
+            level = self.playing_count + 1
+            if level == 4:
+                level = 2
+            for i in range(self.num_brick - 1, 0, -1):
+                self.brick_status[i][0] = self.brick_status[i - 1][0]
+                self.brick_status[i][1] = self.brick_status[i - 1][1]
+            self.brick_status[0] = [level, level]
+        return self.brick_status
+
+    def updateControl(self, x, y, level):
+        if self._state == CONTROL:
+            x = int(x)
+            y = int(y)
+            level = int(level)
+            if (
+                x < 0
+                or x >= self.num_brick
+                or y < 0
+                or y >= 2
+                or level < 0
+                or level > 3
+            ):
+                return None
+            self.brick_status[x][y] = level
+        return self.brick_status
 
 
 if __name__ == "__main__":
@@ -444,9 +502,14 @@ if __name__ == "__main__":
     imgList = []
     # imgList.extend(["img1.jpg", "img2.jpg", "img3.jpg", "img4.jpg"])
     # imgList.extend(["img1-1.jpg", "img1-2.jpg", "img1-3.jpg"])
-    imgList.extend(["img2-1.jpg", "img2-2.jpg", "img2-3.jpg"])
+    # imgList.extend(["img2-1.jpg", "img2-2.jpg", "img2-3.jpg"])
     # imgList.extend(["img3-1.jpg", "img3-2.jpg", "img3-3.jpg"])
-    imgList.extend(["img4-1.jpg", "img4-2.jpg", "img4-3.jpg"])
+    # imgList.extend(["img4-1.jpg", "img4-2.jpg", "img4-3.jpg"])
+    # imgList.extend(["45img1.png", "45img2.png", "45img3.png", "45img4.png"])
+    imgList.extend(["45img1-1.png", "45img1-2.png", "45img1-3.png"])
+    imgList.extend(["45img2-1.png", "45img2-2.png", "45img2-3.png"])
+    imgList.extend(["45img3-1.png", "45img3-2.png", "45img3-3.png"])
+    imgList.extend(["45img4-1.png", "45img4-2.png", "45img4-3.png"])
     decisionMaker = DecisionMaker()
 
     for imgPath in imgList:

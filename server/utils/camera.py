@@ -1,6 +1,7 @@
 import cv2
-from pose import DetectionModel
 import mediapipe as mp
+
+from pose import DetectionModel
 
 # capture image from mac os camera
 cap = cv2.VideoCapture(0)

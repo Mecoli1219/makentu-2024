@@ -1,0 +1,3 @@
+[submodule "eclipse-mosquitto"]
+	path = eclipse-mosquitto
+	url = git@github.com:johnnylord/eclipse-mosquitto.git

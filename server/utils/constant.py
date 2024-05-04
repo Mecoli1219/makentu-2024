@@ -1,0 +1,3 @@
+NORMAL = 0
+PLAYING = 1
+CONTROL = 2
