@@ -7,13 +7,15 @@ import json
 import paho.mqtt.publish as publish
 import paho.mqtt.client as mqtt
 from PIL import Image
+from io import BytesIO
+import base64
 
 from utils.decisionMaker import DecisionMaker
 from utils.constant import PLAYING
 from utils.helper import pil_image_to_byte_array
 
 app = Flask(__name__)
-decisionMaker = DecisionMaker(model_path="./utils/pose_landmarker.task")
+decisionMaker = DecisionMaker(num_brick=7, model_path="./utils/pose_landmarker.task")
 app.config["SECRET_KEY"] = "MaKeNTu2024grOuP8"
 
 client = mqtt.Client()
@@ -21,20 +23,26 @@ client.connect(host="127.0.0.1", port=1883)
 client.loop_start()
 
 
+@app.route("/")
+def index():
+    return "Hello, World!"
+
+
 @app.route("/detect", methods=["POST"])
 def detect():
+    print("Receive Detect")
     if decisionMaker.getState() == PLAYING:
         client.publish(topic="command", payload=str(PLAYING))
         return jsonify({"error": "It is playing State"}), 400
     encoded_data = request.data
+
     img = json.loads(encoded_data)["image"]
-    img = np.array(img, dtype=np.uint8)
+    img = base64.b64decode(img.encode("utf-8"))
+    img = np.frombuffer(img, dtype=np.uint8)
+    img = img.reshape((480, 640, 3))
     mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=img)
 
-    ws_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    ws_img = Image.fromarray(ws_img)
-    byte_array = pil_image_to_byte_array(ws_img)
-    client.publish(topic="image", payload=byte_array)
+    client.publish(topic="image", payload=encoded_data)
 
     try:
         result = decisionMaker.makeDecision(mp_img.numpy_view())
@@ -61,13 +69,7 @@ def detect():
 @app.route("/image", methods=["POST"])
 def image():
     encoded_data = request.data
-    img = json.loads(encoded_data)["image"]
-    img = np.array(img, dtype=np.uint8)
-
-    ws_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    ws_img = Image.fromarray(ws_img)
-    byte_array = pil_image_to_byte_array(ws_img)
-    client.publish(topic="image", payload=byte_array)
+    client.publish(topic="image", payload=encoded_data)
     return jsonify({"message": "Image received"})
 
 
@@ -112,4 +114,4 @@ def control():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0", port=8080)

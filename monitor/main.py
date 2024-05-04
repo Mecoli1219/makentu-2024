@@ -6,10 +6,15 @@ from mqtt import get_mqtt_client
 import time
 import requests
 from streamlit_vertical_slider import vertical_slider
-import streamlit_toggle as sts
+import json
+import base64
+import cv2
 
 VIEWER_WIDTH = 640
-BRICK_NUM = 9
+BRICK_NUM = 7
+
+url = "http://127.0.0.1"
+port = 8080
 
 
 def byte_array_to_pil_image(byte_array):
@@ -27,7 +32,7 @@ def onModeChange():
         state = 1
     elif st.session_state.mode == "Control":
         state = 2
-    requests.post("http://127.0.0.1:5000/state", data=str(state))
+    requests.post(f"{url}:{port}/state", data=str(state))
 
 
 def onFormSubmit():
@@ -36,7 +41,7 @@ def onFormSubmit():
         u = st.session_state[f"u{i}"] or 0
         b = st.session_state[f"b{i}"] or 0
         result.append([u, b])
-    requests.post("http://127.0.0.1:5000/control", json=result)
+    requests.post(f"{url}:{port}/control", json=result)
 
 
 st.title("Monitor")
@@ -78,9 +83,12 @@ if choice == "Control":
 
 def on_message(client, userdata, msg):
     if msg.topic == "image" and not debug:
-        image = byte_array_to_pil_image(msg.payload)
-        image = image.convert("RGB")
-        st.session_state.frame = np.array(image)
+        image = json.loads(msg.payload)["image"]
+        image = base64.b64decode(image.encode("utf-8"))
+        image = np.frombuffer(image, dtype=np.uint8)
+        image = image.reshape((480, 640, 3))
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        st.session_state.frame = image
         viewer.image(st.session_state.frame, width=VIEWER_WIDTH)
 
 
