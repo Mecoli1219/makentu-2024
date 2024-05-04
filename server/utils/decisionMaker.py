@@ -16,7 +16,7 @@ def landmark2np(landmark):
 
 
 class DecisionMaker:
-    def __init__(self, num_brick=9, model_path="pose_landmarker.task"):
+    def __init__(self, num_brick=7, model_path="pose_landmarker.task"):
         self.detector = DetectionModel(model_path)
         self.name2label = NAME2LABEL
         self.label2name = LABEL2NAME
@@ -265,7 +265,7 @@ class DecisionMaker:
         if abs(body_x) > abs(body_y):
             pivot_brick = int(body_pos[0] * self.num_brick)
             pivot_brick = min(max(pivot_brick, 0), self.num_brick - 1)
-            if body_x > 0:
+            if pivot_brick > self.num_brick // 2:
                 if body_y < 0:
                     for i in range(pivot_brick, self.num_brick):
                         self.brick_status[i] = [self.max_level - 1, self.max_level]
@@ -289,20 +289,26 @@ class DecisionMaker:
                         self.brick_status[i] = [0, 1]
 
         elif not self.isSafe:  # * Deal with unsafe situation
-            if self.facePos >= MIDDLE:
-                up_pos = self.detection_result.pose_landmarks[0][
-                    self.name2label["LEFT_SHOULDER"]
-                ]
-                down_pos = self.detection_result.pose_landmarks[0][
-                    self.name2label["RIGHT_SHOULDER"]
-                ]
-            elif self.facePos < MIDDLE:
-                up_pos = self.detection_result.pose_landmarks[0][
-                    self.name2label["RIGHT_SHOULDER"]
-                ]
-                down_pos = self.detection_result.pose_landmarks[0][
-                    self.name2label["LEFT_SHOULDER"]
-                ]
+            left_pos = self.detection_result.pose_landmarks[0][
+                self.name2label["LEFT_SHOULDER"]
+            ]
+            right_pos = self.detection_result.pose_landmarks[0][
+                self.name2label["RIGHT_SHOULDER"]
+            ]
+            if left_pos.x + right_pos.x > 1:
+                if left_pos.x > right_pos.x:
+                    up_pos = left_pos
+                    down_pos = right_pos
+                else:
+                    up_pos = right_pos
+                    down_pos = left_pos
+            else:
+                if left_pos.x < right_pos.x:
+                    up_pos = left_pos
+                    down_pos = right_pos
+                else:
+                    up_pos = right_pos
+                    down_pos = left_pos
 
             up_brick = int(up_pos.x * self.num_brick)
             down_brick = int(down_pos.x * self.num_brick)
@@ -360,7 +366,7 @@ class DecisionMaker:
                 up_eye_brick_x = int(up_eye_pos.x * self.num_brick)
                 up_eye_brick_y = int(up_eye_pos.y > 0.5)
 
-                down_pos = left_shoulder
+                down_shoulder_pos = left_shoulder
                 down_shoulder_brick_x = int(down_pos[0] * self.num_brick)
                 down_shoulder_brick_y = int(down_pos[1] > 0.5)
                 down_eye_pos = self.detection_result.pose_landmarks[0][

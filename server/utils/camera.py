@@ -4,7 +4,7 @@ import mediapipe as mp
 from pose import DetectionModel
 
 # capture image from mac os camera
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
 model = DetectionModel()
 while True:
     ret, frame = cap.read()
