@@ -13,7 +13,7 @@ import cv2
 VIEWER_WIDTH = 640
 BRICK_NUM = 7
 
-url = "http://127.0.0.1"
+url = "http://10.20.2.41"
 port = 8080
 
 
@@ -49,7 +49,7 @@ st.title("Monitor")
 if "frame" not in st.session_state:
     st.session_state.frame = get_random_numpy()
 viewer = st.image(st.session_state.frame, width=VIEWER_WIDTH)
-debug = False
+st.toggle("Debug", False, key="debug")
 
 # select box
 choice = st.radio(
@@ -82,11 +82,19 @@ if choice == "Control":
 
 
 def on_message(client, userdata, msg):
-    if msg.topic == "image" and not debug:
+    if msg.topic == "image" and not st.session_state.debug:
         image = json.loads(msg.payload)["image"]
         image = base64.b64decode(image.encode("utf-8"))
         image = np.frombuffer(image, dtype=np.uint8)
-        image = image.reshape((480, 640, 3))
+        image = image.reshape((780, 680, 3))
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        st.session_state.frame = image
+        viewer.image(st.session_state.frame, width=VIEWER_WIDTH)
+    if msg.topic == "debug-image" and st.session_state.debug:
+        image = json.loads(msg.payload)["image"]
+        image = base64.b64decode(image.encode("utf-8"))
+        image = np.frombuffer(image, dtype=np.uint8)
+        image = image.reshape((780, 680, 3))
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         st.session_state.frame = image
         viewer.image(st.session_state.frame, width=VIEWER_WIDTH)
@@ -98,7 +106,7 @@ def main():
     client.on_message = on_message
     client.connect("127.0.0.1", port=1883)
     client.subscribe("image", 0)
-    # client.subscribe("debug-image", 0)
+    client.subscribe("debug-image", 0)
     time.sleep(4)  # Wait for connection setup to complete
     client.loop_forever()
 

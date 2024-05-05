@@ -1,13 +1,10 @@
 import cv2
 from requests import post
 import json
-from json import JSONEncoder
-import numpy as np
 import base64
 import paho.mqtt.client as mqtt
 import socket
 import time
-import io
 
 NORMAL = 0
 PLAYING = 1
@@ -15,16 +12,11 @@ CONTROL = 2
 
 delay_time = 500
 
-USE_PI_CAMERA = True
+USE_CAMERA = False
+DEBUG = False
 
-if not USE_PI_CAMERA:
+if USE_CAMERA:
     cap = cv2.VideoCapture(0)
-else:
-    from picamera2 import Picamera2
-
-    picam2 = Picamera2()
-    picam2.create_preview_configuration({"format": "RGB", "size": "640x480"})
-    picam2.start()
 
 
 class State:
@@ -32,7 +24,7 @@ class State:
         self._state = NORMAL
         self.brick_num = 7
         self.brick_status = [[0, 0] for _ in range(self.brick_num)]
-        self.brick_multiply = 100
+        self.brick_multiply = 300
 
     def set_state(self, state):
         if state in [NORMAL, PLAYING, CONTROL]:
@@ -72,25 +64,21 @@ STATE = State()
 
 
 def get_frame():
-    if USE_PI_CAMERA:
-        data = io.BytesIO()
-        picam2.capture_file(data, format="jpeg")
-        data.seek(0)
-        frame = np.frombuffer(data.getvalue(), dtype=np.uint8)
-    else:
-        ret, frame = cap.read()
+    ret, frame = cap.read()
     return frame
 
 
 if __name__ == "__main__":
 
-    HOST = "192.168.2.11"
-    PORT = 6000
     SV_HOST = "10.20.2.41"
     SV_PORT = 8080
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind(("", PORT))
+    PORT = 6000
+    if DEBUG:
+        HOST = "127.0.0.1"
+    else:
+        HOST = "192.168.2.11"
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind(("", PORT))
 
     def send_motorCmd(motorCmd):
         motorCmd = STATE.brick_diff(motorCmd)
@@ -98,10 +86,14 @@ if __name__ == "__main__":
             data = "r"
         else:
             # ! Remove this
-            motorCmd = motorCmd[0]
+            # motorCmd = motorCmd[0]
+            motorCmd = [i for j in motorCmd for i in j]
             data = json.dumps(motorCmd)
-
-        s.sendto(data.encode(), (HOST, PORT))
+            print(data)
+        if DEBUG:
+            print(f"Send data: {data}")
+        else:
+            s.sendto(data.encode(), (HOST, PORT))
 
     def on_message(client, obj, msg):
         print(f"TOPIC:{msg.topic}, VALUE:{msg.payload}")
@@ -126,32 +118,39 @@ if __name__ == "__main__":
 
     # capture image from mac os camera
     while True:
-        frame = get_frame()
-        if frame is None:
-            print("Failed to get frame")
-            continue
+        if USE_CAMERA:
+            frame = get_frame()
+            if frame is None:
+                print("Failed to get frame")
+                continue
 
-        base64img = base64.b64encode(frame)
-        encoded_data = json.dumps({"image": base64img.decode("utf-8")})
+            base64img = base64.b64encode(frame)
+            encoded_data = json.dumps({"image": base64img.decode("utf-8")})
         if STATE.get_state() == NORMAL:
-            response = post(
-                url + "detect",
-                data=encoded_data,
-                headers={"Content-Type": "application/json"},
-            )
+            if USE_CAMERA:
+                response = post(
+                    url + "detect",
+                    data=encoded_data,
+                    headers={"Content-Type": "application/json"},
+                )
+            else:
+                response = post(url + "detect")
             if response.ok:
                 motorCmd = response.json()
                 send_motorCmd(motorCmd)
                 time.sleep(delay_time / 1000)
             else:
                 print("Failed to get response")
-                time.sleep(delay_time / 10000)
+                time.sleep(delay_time / 5000)
         elif STATE.get_state() == PLAYING:
-            response = post(
-                url + "image",
-                data=encoded_data,
-                headers={"Content-Type": "application/json"},
-            )
+            if USE_CAMERA:
+                response = post(
+                    url + "image",
+                    data=encoded_data,
+                    headers={"Content-Type": "application/json"},
+                )
+            else:
+                response = post(url + "image")
 
             response = post(url + "playing")
             motorCmd = response.json()
@@ -159,11 +158,17 @@ if __name__ == "__main__":
             time.sleep(delay_time / 1000)
         else:
             # print("Control state")
-            response = post(
-                url + "image",
-                data=encoded_data,
-                headers={"Content-Type": "application/json"},
-            )
+            if USE_CAMERA:
+                response = post(
+                    url + "image",
+                    data=encoded_data,
+                    headers={"Content-Type": "application/json"},
+                )
+            else:
+                response = post(url + "image")
             time.sleep(delay_time / 1000)
 
-    s.close()
+    if USE_CAMERA:
+        cap.release()
+    if not DEBUG:
+        s.close()

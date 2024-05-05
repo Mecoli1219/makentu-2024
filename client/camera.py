@@ -5,7 +5,7 @@ from json import JSONEncoder
 import numpy as np
 
 # capture image from mac os camera
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 
 class NumpyArrayEncoder(JSONEncoder):
@@ -29,7 +29,7 @@ while True:
 
     numpyData = {"image": frame}
     encoded_data = json.dumps(numpyData, cls=NumpyArrayEncoder)
-    response = post(
-        url, data=encoded_data, headers={"Content-Type": "application/json"}
-    )
-    print(response.json())
+    #response = post(
+    #    url, data=encoded_data, headers={"Content-Type": "application/json"}
+    #)
+    #print(response.json())

@@ -39,7 +39,11 @@ class DetectionModel:
     def __init__(self, model_path="pose_landmarker.task"):
         base_options = python.BaseOptions(model_asset_path=model_path)
         options = vision.PoseLandmarkerOptions(
-            base_options=base_options, output_segmentation_masks=True
+            base_options=base_options,
+            output_segmentation_masks=True,
+            min_pose_detection_confidence=0.1,
+            min_tracking_confidence=0.1,
+            min_pose_presence_confidence=0.1,
         )
         detector = vision.PoseLandmarker.create_from_options(options)
         self.detector = detector

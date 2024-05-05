@@ -25,7 +25,7 @@ class DecisionMaker:
         self.isSafe = True
         self.facePos = MIDDLE
         self.safeCount = 0
-        self.safeThreshold = 5
+        self.safeThreshold = 1
         self.startSafety = False
         self.safetyUp = True
         self.detection_result = None
@@ -108,9 +108,9 @@ class DecisionMaker:
         if image.shape[2] == 3:
             image = np.concatenate([image, np.ones_like(image[:, :, :1]) * 255], axis=2)
         images = [
-            np.rot90(image, 1).copy(),
-            np.rot90(image, 2).copy(),
-            np.rot90(image, 3).copy(),
+            # np.rot90(image, 1).copy(),
+            # np.rot90(image, 2).copy(),
+            # np.rot90(image, 3).copy(),
             image,
         ]
         results = [[], []]
@@ -123,7 +123,6 @@ class DecisionMaker:
             pose_landmarks_list = detection_result.pose_landmarks
             if len(pose_landmarks_list) != 1:
                 continue
-            self.detection_result = detection_result
             pose_landmarks = pose_landmarks_list[0]
             pose_landmarks = [landmark2np(landmark) for landmark in pose_landmarks]
 
@@ -136,6 +135,10 @@ class DecisionMaker:
             results[1].append(facePos)
         if len(results[0]) == 0:
             return None, None
+
+        if detection_result is None or len(detection_result.pose_landmarks) == 0:
+            return None, None
+        self.detection_result = detection_result
 
         isSafe = np.mean(results[0]) > 0.5
         facePos = max(set(results[1]), key=results[1].count)
@@ -265,7 +268,14 @@ class DecisionMaker:
         if abs(body_x) > abs(body_y):
             pivot_brick = int(body_pos[0] * self.num_brick)
             pivot_brick = min(max(pivot_brick, 0), self.num_brick - 1)
-            if pivot_brick > self.num_brick // 2:
+            initialize = True
+            for i in range(self.num_brick):
+                if self.brick_status[i] != [0, 0]:
+                    initialize = False
+                    break
+            if not initialize:
+                self.brick_status = [[0, 0] for _ in range(self.num_brick)]
+            elif pivot_brick > self.num_brick // 2:
                 if body_y < 0:
                     for i in range(pivot_brick, self.num_brick):
                         self.brick_status[i] = [self.max_level - 1, self.max_level]
@@ -333,6 +343,10 @@ class DecisionMaker:
                 self.startSafetyWave(up_brick, down_brick)
         elif self.facePos != MIDDLE:
             # * Deal with safe situation
+            if not self.prev_isSafe:
+                self.brick_status = [[0, 0] for _ in range(self.num_brick)]
+                return self.brick_status
+
             base_level = 1
             self.brick_status = [
                 [base_level, base_level] for _ in range(self.num_brick)
